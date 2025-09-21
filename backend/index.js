@@ -123,75 +123,96 @@ app.get('/api/documents', async (_req, res) => {
 /* =========================
    Analyze (proxy to FastAPI)
    ========================= */
-app.post('/api/analyze', (req, res) => {
-  const form = new formidable.IncomingForm();
+const analyzeForm = new (require('formidable').IncomingForm)({
+  multiples: false,
+  keepExtensions: true,
+  maxFileSize: 25 * 1024 * 1024, // 25 MB
+  allowEmptyFiles: false,
+});
 
-  form.parse(req, async (err, _fields, files) => {
+app.post('/api/analyze', (req, res) => {
+  analyzeForm.parse(req, async (err, _fields, files) => {
     if (err) {
-      console.error('Error parsing form data:', err);
-      return res.status(500).json({ message: 'Error parsing the file upload.' });
+      console.error('Formidable parse error (/api/analyze):', err);
+      const msg = err?.message || 'Error parsing the file upload.';
+      return res.status(400).json({ message: msg });
     }
 
     try {
-      const file = Array.isArray(files.document) ? files.document[0] : files.document;
-      if (!file) return res.status(400).json({ message: 'No document file was uploaded.' });
+      // Handle both v2/v3 shapes: single file or array
+      const f =
+        (Array.isArray(files.document) ? files.document[0] : files.document) ||
+        (Array.isArray(files.file) ? files.file[0] : files.file);
+      if (!f) {
+        return res.status(400).json({ message: "No document file was uploaded (expected field 'document')." });
+      }
 
-      const fileStream = fs.createReadStream(file.filepath);
-      const formData = new FormData();
-
-      // FastAPI supports both "document" and "file". We'll send "document".
-      formData.append('document', fileStream, {
-        filename: file.originalFilename || 'document',
-        contentType: file.mimetype || 'application/octet-stream',
+      const stream = fs.createReadStream(f.filepath);
+      const formData = new (require('form-data'))();
+      formData.append('document', stream, {
+        filename: f.originalFilename || 'document',
+        contentType: f.mimetype || 'application/octet-stream',
       });
 
-      console.log(`Forwarding analysis request to: ${AI_BASE}/analyze`);
+      console.log(`Forwarding analysis to: ${AI_BASE}/analyze`);
 
       const ai = await axios.post(`${AI_BASE}/analyze`, formData, {
         headers: formData.getHeaders(),
         maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+        timeout: 60000,
       });
 
-      // Persist a document record
+      // Best-effort persistence (don’t block the response if this fails)
       try {
         await Document.create({
-          title: file.originalFilename || 'document',
+          title: f.originalFilename || 'document',
           status: 'analyzed',
           riskLevel: ai.data?.riskLevel ?? null,
           tags: Array.isArray(ai.data?.tags) ? ai.data.tags.slice(0, 10) : [],
-          size: ai.data?.size || `${Math.round((file.size || 0) / 1024)} KB`,
+          size: ai.data?.size || `${Math.round((f.size || 0) / 1024)} KB`,
           type: ai.data?.type || 'txt',
         });
       } catch (dbErr) {
         console.warn('Could not save document entry:', dbErr?.message || dbErr);
       }
 
-      // Cleanup temp file
-      try { fs.unlinkSync(file.filepath); } catch { /* ignore */ }
+      try { fs.unlinkSync(f.filepath); } catch {}
 
-      res.status(200).json(ai.data);
+      return res.status(ai.status).json(ai.data);
     } catch (error) {
-      console.error('Error calling AI service:', error?.response?.data || error.message);
+      // Forward the AI service error status & message
+      const status = error?.response?.status || 500;
+      const detail =
+        error?.response?.data?.detail ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'The AI service failed to analyze the document.';
+      console.error('AI /analyze error:', status, detail, error?.response?.data);
 
-      // Best effort: record failed status with minimal info
+      // Attempt to persist a failed record with minimal info (non-blocking)
       try {
-        const f = files.document && (Array.isArray(files.document) ? files.document[0] : files.document);
-        if (f) {
+        const ff =
+          (Array.isArray(files.document) ? files.document[0] : files.document) ||
+          (Array.isArray(files.file) ? files.file[0] : files.file);
+        if (ff) {
           await Document.create({
-            title: f.originalFilename || 'document',
+            title: ff.originalFilename || 'document',
             status: 'failed',
             riskLevel: null,
             tags: [],
-            size: `${Math.round((f.size || 0) / 1024)} KB`,
+            size: `${Math.round((ff.size || 0) / 1024)} KB`,
             type: 'unknown',
           });
+          try { fs.unlinkSync(ff.filepath); } catch {}
         }
-      } catch { /* ignore */ }
+      } catch {}
 
-      res.status(500).json({ message: 'The AI service failed to analyze the document. Please try again.' });
+      return res.status(status).json({ message: detail });
     }
   });
 });
+
 
 /* =========================
    Chat (proxy to FastAPI)
@@ -211,63 +232,72 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// --- Compare (forward to AI service) ---
-app.post('/api/compare', (req, res) => {
-  const form = new formidable.IncomingForm({ multiples: false });
+/* =========================
+   Compare (proxy to FastAPI)
+   ========================= */
 
-  form.parse(req, async (err, fields, files) => {
+const compareForm = new (require('formidable').IncomingForm)({
+  multiples: false,
+  keepExtensions: true,
+  maxFileSize: 25 * 1024 * 1024,
+  allowEmptyFiles: false,
+});
+
+app.post('/api/compare', (req, res) => {
+  compareForm.parse(req, async (err, _fields, files) => {
     if (err) {
-      console.error("Error parsing form data for comparison:", err);
-      return res.status(500).json({ message: 'Error parsing the file uploads.' });
+      console.error('Formidable parse error (/api/compare):', err);
+      const msg = err?.message || 'Error parsing the file uploads.';
+      return res.status(400).json({ message: msg });
     }
 
     try {
-      const fileA = files.fileA?.[0];
-      const fileB = files.fileB?.[0];
+      const fileA =
+        (Array.isArray(files.fileA) ? files.fileA[0] : files.fileA);
+      const fileB =
+        (Array.isArray(files.fileB) ? files.fileB[0] : files.fileB);
+
       if (!fileA || !fileB) {
         return res.status(400).json({ message: 'Both document versions are required for comparison.' });
       }
 
-      const aiServiceUrl = process.env.AI_SERVICE_URL;
-      if (!aiServiceUrl) {
-        console.error("AI_SERVICE_URL is not defined in .env");
-        return res.status(500).json({ message: 'Server configuration error.' });
-      }
-
-      const fd = new FormData();
+      const fd = new (require('form-data'))();
       fd.append('fileA', fs.createReadStream(fileA.filepath), {
         filename: fileA.originalFilename || 'fileA',
-        contentType: fileA.mimetype,
+        contentType: fileA.mimetype || 'application/octet-stream',
       });
       fd.append('fileB', fs.createReadStream(fileB.filepath), {
         filename: fileB.originalFilename || 'fileB',
-        contentType: fileB.mimetype,
+        contentType: fileB.mimetype || 'application/octet-stream',
       });
 
-      const resp = await axios.post(`${aiServiceUrl}/compare`, fd, {
+      const resp = await axios.post(`${AI_BASE}/compare`, fd, {
         headers: fd.getHeaders(),
-        maxContentLength: Infinity,
         maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+        timeout: 60000,
       });
 
-      // Clean temp files
       try { fs.unlinkSync(fileA.filepath); } catch {}
       try { fs.unlinkSync(fileB.filepath); } catch {}
 
-      return res.status(200).json(resp.data);
+      return res.status(resp.status).json(resp.data);
     } catch (error) {
-      const detail = error?.response?.data?.detail || error?.message || 'The server failed to compare the documents.';
-      console.error("Compare error:", detail);
+      const status = error?.response?.status || 500;
+      const detail =
+        error?.response?.data?.detail ||
+        error?.response?.data?.message ||
+        error?.message ||
+        'The server failed to compare the documents.';
+      console.error('AI /compare error:', status, detail, error?.response?.data);
 
-      // Clean temp files
-      try { if (files.fileA?.[0]) fs.unlinkSync(files.fileA[0].filepath); } catch {}
-      try { if (files.fileB?.[0]) fs.unlinkSync(files.fileB[0].filepath); } catch {}
+      try { if (files.fileA) fs.unlinkSync((Array.isArray(files.fileA) ? files.fileA[0] : files.fileA).filepath); } catch {}
+      try { if (files.fileB) fs.unlinkSync((Array.isArray(files.fileB) ? files.fileB[0] : files.fileB).filepath); } catch {}
 
-      return res.status(error?.response?.status || 500).json({ message: detail });
+      return res.status(status).json({ message: detail });
     }
   });
 });
-
 
 /* =========================
    Start
