@@ -48,7 +48,9 @@ html.hc {
   --sidebar-ring: #4A90E2;
 }
 
-.dark {
+/* was: .dark { ... } */
+:root.dark,
+body.dark {
   --background: oklch(0.16 0 0);
   --foreground: oklch(0.98 0 0);
   --card: oklch(0.18 0 0);
@@ -78,6 +80,7 @@ html.hc {
   --sidebar-border: oklch(0.28 0 0);
   --sidebar-ring: oklch(0.70 0.08 250);
 }
+
 
 @theme inline {
   --color-background: var(--background);

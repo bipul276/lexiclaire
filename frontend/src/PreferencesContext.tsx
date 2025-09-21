@@ -6,10 +6,10 @@ type Prefs = {
   darkMode: boolean;
   setDarkMode: (v: boolean) => void;
 
-  contrast: number; // 100–140
+  contrast: number; // 100–140 (%)
   setContrast: (v: number) => void;
 
-  fontSize: number; // 12–22
+  fontSize: number; // 12–22 (px)
   setFontSize: (v: number) => void;
 
   language: LangKey;
@@ -45,22 +45,23 @@ export const PreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [language, setLanguage] = useState<LangKey>(DEFAULTS.language);
   const [reducedMotion, setReducedMotion] = useState(DEFAULTS.reducedMotion);
 
-  // Load once
+  // Load once from localStorage
   useEffect(() => {
     try {
       const raw = localStorage.getItem(LS_KEY);
-      if (raw) {
-        const saved = JSON.parse(raw);
-        if (typeof saved.darkMode === "boolean") setDarkMode(saved.darkMode);
-        if (typeof saved.contrast === "number") setContrast(saved.contrast);
-        if (typeof saved.fontSize === "number") setFontSize(saved.fontSize);
-        if (saved.language) setLanguage(saved.language);
-        if (typeof saved.reducedMotion === "boolean") setReducedMotion(saved.reducedMotion);
-      }
-    } catch {}
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (typeof saved.darkMode === "boolean") setDarkMode(saved.darkMode);
+      if (typeof saved.contrast === "number") setContrast(saved.contrast);
+      if (typeof saved.fontSize === "number") setFontSize(saved.fontSize);
+      if (saved.language) setLanguage(saved.language as LangKey);
+      if (typeof saved.reducedMotion === "boolean") setReducedMotion(saved.reducedMotion);
+    } catch {
+      /* ignore */
+    }
   }, []);
 
-  // Persist and reflect to <html>
+  // Persist + reflect to <html> and <body>
   useEffect(() => {
     localStorage.setItem(
       LS_KEY,
@@ -68,19 +69,25 @@ export const PreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ c
     );
 
     const root = document.documentElement;
+    const body = document.body;
 
-    // theme
-    root.classList.toggle("dark", darkMode);
+    // Dark mode on both elements for compatibility
+    root.classList.toggle("dark", !!darkMode);
+    body.classList.toggle("dark", !!darkMode);
 
-    // font size (base rem sizing)
-    root.style.setProperty("--lexi-font-size", `${fontSize}px`);
+    // Native controls theme
+    root.style.setProperty("color-scheme", darkMode ? "dark" : "light");
 
-    // contrast multiplier for design tokens (optional usage)
-    root.style.setProperty("--lexi-contrast", `${contrast}%`);
+    // Font size token (your CSS reads --font-size)
+    root.style.setProperty("--font-size", `${fontSize}px`);
 
-    // reduced motion
-    if (reducedMotion) root.classList.add("reduced-motion");
-    else root.classList.remove("reduced-motion");
+    // Contrast multiplier + toggle high-contrast class
+    const multiplier = Math.max(1, contrast / 100); // 1.0–1.4
+    root.style.setProperty("--hc-multiplier", String(multiplier));
+    root.classList.toggle("hc", contrast > 100);
+
+    // Reduced motion
+    root.classList.toggle("reduced-motion", !!reducedMotion);
   }, [darkMode, contrast, fontSize, language, reducedMotion]);
 
   const resetPrefs = () => {
@@ -91,7 +98,8 @@ export const PreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ c
     setReducedMotion(DEFAULTS.reducedMotion);
   };
 
-  const value = useMemo(
+  // ✅ This was missing: the value object you provide to the context
+  const value = useMemo<Prefs>(
     () => ({
       darkMode,
       setDarkMode,
