@@ -10,3 +10,4 @@ python-docx
 tiktoken
 langchain-google-genai
 PyPDF2
+python-multipart
