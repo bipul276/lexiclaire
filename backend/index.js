@@ -68,7 +68,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
 
 const aiHttp = axios.create({
   baseURL: AI_BASE,
-  timeout: 120_000,            // allow for cold starts
+  timeout: 300_000,            // allow for cold starts
   maxContentLength: Infinity,
   maxBodyLength: Infinity,
 });
