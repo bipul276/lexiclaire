@@ -4,7 +4,26 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Vite + React + TS</title>
+    <title>Lexiclaire</title>
+
+    <!-- Apply saved theme ASAP to avoid FOUC -->
+    <script>
+      try {
+        const saved = JSON.parse(localStorage.getItem('lexi-prefs') || '{}');
+        if (saved.darkMode) {
+          document.documentElement.classList.add('dark');
+          document.body.classList.add('dark');
+          document.documentElement.style.setProperty('color-scheme', 'dark');
+        }
+        if (typeof saved.fontSize === 'number') {
+          document.documentElement.style.setProperty('--font-size', saved.fontSize + 'px');
+        }
+        if (typeof saved.contrast === 'number' && saved.contrast > 100) {
+          document.documentElement.style.setProperty('--hc-multiplier', String(Math.max(1, saved.contrast / 100)));
+          document.documentElement.classList.add('hc');
+        }
+      } catch {}
+    </script>
   </head>
   <body>
     <div id="root"></div>
