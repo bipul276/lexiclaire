@@ -1,4 +1,4 @@
-Lexiclaire — AI-powered Contract & Document Intelligence
+Lexiclaire - AI-powered Contract & Document Intelligence
 
 Lexiclaire helps you understand long, messy PDFs/DOCX/TXT in minutes. Upload a document and get a clean summary, obligations, clauses, risks, and a grounded AI chat—plus a visual PDF preview with highlights that line up with what the AI is talking about.
 
