@@ -198,15 +198,16 @@ export const analyzeDocument = async (file: File): Promise<AnalysisReport> => {
 
     return report;
   } catch (err: any) {
-    const status = err?.response?.status;
-    const msg =
-      status === 429
-        ? "Quota exceeded on the AI provider. Please check billing/quota or switch model."
-        : err?.response?.data?.detail ||
-          err?.response?.data?.message ||
-          "The AI model failed to process the document.";
-    throw normalizeError({ response: { status, data: { detail: msg } } }, msg);
-  }
+  const status = err?.response?.status;
+  const msg =
+    status && [502,503,504,522,524].includes(status)
+      ? "Our AI service is waking up. Please try again in a few seconds."
+      : err?.response?.data?.detail ||
+        err?.response?.data?.message ||
+        "The AI service failed to analyze the document. Please try again.";
+  throw normalizeError({ response: { status, data: { detail: msg } } }, msg);
+}
+
 };
 
 /* =========================
