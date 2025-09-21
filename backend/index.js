@@ -211,52 +211,63 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-/* =========================
-   Compare (mock for now)
-   ========================= */
+// --- Compare (forward to AI service) ---
 app.post('/api/compare', (req, res) => {
-  const form = new formidable.IncomingForm();
-  form.parse(req, async (err, _fields, files) => {
+  const form = new formidable.IncomingForm({ multiples: false });
+
+  form.parse(req, async (err, fields, files) => {
     if (err) {
-      console.error('Error parsing form data for comparison:', err);
+      console.error("Error parsing form data for comparison:", err);
       return res.status(500).json({ message: 'Error parsing the file uploads.' });
     }
 
     try {
-      const fileA = Array.isArray(files.fileA) ? files.fileA[0] : files.fileA;
-      const fileB = Array.isArray(files.fileB) ? files.fileB[0] : files.fileB;
+      const fileA = files.fileA?.[0];
+      const fileB = files.fileB?.[0];
       if (!fileA || !fileB) {
         return res.status(400).json({ message: 'Both document versions are required for comparison.' });
       }
 
-      console.log(`Received files for comparison: ${fileA.originalFilename} vs ${fileB.originalFilename}`);
+      const aiServiceUrl = process.env.AI_SERVICE_URL;
+      if (!aiServiceUrl) {
+        console.error("AI_SERVICE_URL is not defined in .env");
+        return res.status(500).json({ message: 'Server configuration error.' });
+      }
 
-      const mockComparisonReport = {
-        versionA: {
-          title: fileA.originalFilename || 'Version 1.0',
-          content: 'This is the content of the first document. It has some text that will be marked as removed.',
-        },
-        versionB: {
-          title: fileB.originalFilename || 'Version 2.0',
-          content: 'This is the content of the second document. It has some new text that will be marked as added.',
-        },
-        changes: [
-          { type: 'modified', section: 'Mock Section', description: 'The payment terms were updated.', impact: 'This is a mock impact analysis from the live backend.' },
-          { type: 'added', section: 'New Clause', description: 'A warranty clause was added.', impact: 'This provides more protection for the client.' },
-        ],
-      };
+      const fd = new FormData();
+      fd.append('fileA', fs.createReadStream(fileA.filepath), {
+        filename: fileA.originalFilename || 'fileA',
+        contentType: fileA.mimetype,
+      });
+      fd.append('fileB', fs.createReadStream(fileB.filepath), {
+        filename: fileB.originalFilename || 'fileB',
+        contentType: fileB.mimetype,
+      });
 
-      // cleanup temp files
+      const resp = await axios.post(`${aiServiceUrl}/compare`, fd, {
+        headers: fd.getHeaders(),
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+      });
+
+      // Clean temp files
       try { fs.unlinkSync(fileA.filepath); } catch {}
       try { fs.unlinkSync(fileB.filepath); } catch {}
 
-      res.status(200).json(mockComparisonReport);
+      return res.status(200).json(resp.data);
     } catch (error) {
-      console.error('Error processing comparison:', error.message);
-      res.status(500).json({ message: 'The server failed to compare the documents.' });
+      const detail = error?.response?.data?.detail || error?.message || 'The server failed to compare the documents.';
+      console.error("Compare error:", detail);
+
+      // Clean temp files
+      try { if (files.fileA?.[0]) fs.unlinkSync(files.fileA[0].filepath); } catch {}
+      try { if (files.fileB?.[0]) fs.unlinkSync(files.fileB[0].filepath); } catch {}
+
+      return res.status(error?.response?.status || 500).json({ message: detail });
     }
   });
 });
+
 
 /* =========================
    Start

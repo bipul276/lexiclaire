@@ -1,5 +1,9 @@
-import axios from 'axios';
+// frontend/src/services/api.ts
+import axios from "axios";
 
+/* =========================
+ *        Interfaces
+ * ========================= */
 export interface User {
   id: string;
   firstName: string;
@@ -23,19 +27,30 @@ export interface Document {
   id: string;
   title: string;
   uploadDate: string;
-  status: 'analyzed' | 'analyzing' | 'failed';
-  riskLevel: 'high' | 'medium' | 'low' | null;
+  status: "analyzed" | "analyzing" | "failed";
+  riskLevel: "high" | "medium" | "low" | null;
   tags: string[];
   size: string;
   type: string; // display label: "PDF", "DOCX", "TXT"
 }
 
-export interface Obligation { text: string; clause: string; }
-export interface Risk { text: string; clause: string; severity: 'high' | 'medium' | 'low'; }
-export interface Clause { name: string; status: 'standard' | 'unusual' | 'restrictive'; description: string; }
+export interface Obligation {
+  text: string;
+  clause: string;
+}
+export interface Risk {
+  text: string;
+  clause: string;
+  severity: "high" | "medium" | "low";
+}
+export interface Clause {
+  name: string;
+  status: "standard" | "unusual" | "restrictive";
+  description: string;
+}
 
 export interface Highlight {
-  kind: 'obligation' | 'risk' | 'clause';
+  kind: "obligation" | "risk" | "clause";
   clause?: string;
   text: string;
   rangeStart: number;
@@ -47,10 +62,10 @@ export interface AnalysisReport {
   obligations: Obligation[];
   risks: Risk[];
   clauses: Clause[];
-  riskLevel: 'low' | 'medium' | 'high';
+  riskLevel: "low" | "medium" | "high";
   tags: string[];
   size: string;
-  type: 'pdf' | 'docx' | 'txt';
+  type: "pdf" | "docx" | "txt";
   pages: number;
   analyzedText: string;
   pageOffsets: number[];
@@ -58,13 +73,13 @@ export interface AnalysisReport {
 }
 
 export interface ChatMessage {
-  type: 'user' | 'ai';
+  type: "user" | "ai";
   content: string;
 }
 
 /** Version Compare types */
 export interface Change {
-  type: 'added' | 'modified' | 'removed';
+  type: "added" | "modified" | "removed";
   section: string;
   description: string;
   impact: string;
@@ -76,104 +91,183 @@ export interface ComparisonReport {
   changes: Change[];
 }
 
+/* =========================
+ *     Axios Client Setup
+ * ========================= */
+const inferBase = () => {
+  // Priority: explicit env → dev default → reverse-proxy path
+  const env = import.meta.env?.VITE_API_BASE as string | undefined;
+  if (env && env.trim()) return env.replace(/\/+$/, ""); // remove trailing slash
+  if (typeof window !== "undefined" && window.location.hostname === "localhost") {
+    return "http://localhost:5001/api";
+  }
+  return "/api";
+};
+
+const apiBase = inferBase();
+
 const apiClient = axios.create({
-  baseURL: '/api',
+  baseURL: apiBase,
+  timeout: 30000,
 });
 
-// ---------- AUTH ----------
-export const loginUser = async (email: string, password: string): Promise<AuthResponse> => {
-  const r = await apiClient.post('/auth/login', { email, password });
-  if (r.data.token) {
-    localStorage.setItem('lexiclaire-token', r.data.token);
-    apiClient.defaults.headers.common['Authorization'] = `Bearer ${r.data.token}`;
+// Restore token on load
+const savedToken = localStorage.getItem("lexiclaire-token");
+if (savedToken) {
+  apiClient.defaults.headers.common["Authorization"] = `Bearer ${savedToken}`;
+}
+
+// Helpful exports for auth management
+export function setAuthToken(token: string | null) {
+  if (token) {
+    localStorage.setItem("lexiclaire-token", token);
+    apiClient.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+  } else {
+    localStorage.removeItem("lexiclaire-token");
+    delete apiClient.defaults.headers.common["Authorization"];
   }
+}
+export function logout() {
+  setAuthToken(null);
+}
+
+// Normalize errors so UI can read .detail OR .message
+const normalizeError = (err: any, fallback = "Request failed.") => {
+  const status = err?.response?.status ?? 0;
+  const detail =
+    err?.response?.data?.detail ||
+    err?.response?.data?.message ||
+    err?.message ||
+    fallback;
+  return { response: { status, data: { detail, message: detail } } };
+};
+
+/* =========================
+ *          Auth
+ * ========================= */
+export const loginUser = async (
+  email: string,
+  password: string
+): Promise<AuthResponse> => {
+  const r = await apiClient.post("/auth/login", { email, password });
+  if (r.data?.token) setAuthToken(r.data.token);
   return r.data;
 };
 
-export const registerUser = async (userData: RegistrationData): Promise<AuthResponse> => {
-  const r = await apiClient.post('/auth/register', userData);
-  if (r.data.token) {
-    localStorage.setItem('lexiclaire-token', r.data.token);
-    apiClient.defaults.headers.common['Authorization'] = `Bearer ${r.data.token}`;
-  }
+export const registerUser = async (
+  userData: RegistrationData
+): Promise<AuthResponse> => {
+  const r = await apiClient.post("/auth/register", userData);
+  if (r.data?.token) setAuthToken(r.data.token);
   return r.data;
 };
 
-// ---------- ANALYZE ----------
+/* =========================
+ *        Analyze
+ * ========================= */
 export const analyzeDocument = async (file: File): Promise<AnalysisReport> => {
   const formData = new FormData();
-  // Backend accepts "document" (primary) and "file" (fallback).
-  formData.append('document', file);
+  // Backend accepts "document" (primary) and "file" (fallback in FastAPI)
+  formData.append("document", file);
 
   try {
-    const r = await apiClient.post('/analyze', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    const r = await apiClient.post("/analyze", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      maxBodyLength: 10 * 1024 * 1024,
     });
 
     const report: AnalysisReport = r.data;
 
-    // Persist a light entry for "My Documents" (localStorage for now)
+    // Persist a light entry for "My Documents"
     const item: Document = {
       id: `${Date.now()}-${file.name}`,
       title: file.name,
       uploadDate: new Date().toISOString(),
-      status: 'analyzed',
+      status: "analyzed",
       riskLevel: report.riskLevel,
       tags: report.tags,
       size: report.size,
       type: report.type.toUpperCase(),
     };
-    const raw = localStorage.getItem('lexi-history') || '[]';
+    const raw = localStorage.getItem("lexi-history") || "[]";
     const arr: Document[] = JSON.parse(raw);
-    localStorage.setItem('lexi-history', JSON.stringify([item, ...arr].slice(0, 200)));
+    localStorage.setItem(
+      "lexi-history",
+      JSON.stringify([item, ...arr].slice(0, 200))
+    );
 
     return report;
   } catch (err: any) {
-    // Friendly, actionable errors
     const status = err?.response?.status;
-    const msg = status === 429
-      ? "Quota exceeded on the AI provider. Please check billing/quota or switch model."
-      : (err?.response?.data?.detail || "The AI model failed to process the document.");
-    // Re-throw in a consistent shape used by UI
-    throw { response: { data: { message: msg } } };
+    const msg =
+      status === 429
+        ? "Quota exceeded on the AI provider. Please check billing/quota or switch model."
+        : err?.response?.data?.detail ||
+          err?.response?.data?.message ||
+          "The AI model failed to process the document.";
+    throw normalizeError({ response: { status, data: { detail: msg } } }, msg);
   }
 };
 
-// ---------- CHAT ----------
+/* =========================
+ *          Chat
+ * ========================= */
 export const askChat = async (
   question: string,
   history: ChatMessage[],
   documentId: string,
   analyzedText: string
 ): Promise<ChatMessage> => {
-  const r = await apiClient.post('/chat', { question, history, documentId, analyzedText });
-  return r.data;
+  try {
+    const r = await apiClient.post("/chat", {
+      question,
+      history,
+      documentId,
+      analyzedText,
+    });
+    return r.data as ChatMessage;
+  } catch (err: any) {
+    throw normalizeError(err, "Chat request failed.");
+  }
 };
 
-// ---------- HISTORY ----------
-// services/api.ts
+/* =========================
+ *        History
+ * ========================= */
 export const getDocuments = async (): Promise<Document[]> => {
-  const r = await apiClient.get('/documents');
-  return r.data as Document[];
+  try {
+    const r = await apiClient.get("/documents");
+    return r.data as Document[];
+  } catch (err: any) {
+    throw normalizeError(err, "Failed to fetch documents.");
+  }
 };
 
-
-// ---------- VERSION COMPARE ----------
-export const compareDocuments = async (fileA: File, fileB: File): Promise<ComparisonReport> => {
+/* =========================
+ *     Version Compare
+ * ========================= */
+export const compareDocuments = async (
+  fileA: File,
+  fileB: File
+): Promise<ComparisonReport> => {
   const formData = new FormData();
-  formData.append('fileA', fileA);
-  formData.append('fileB', fileB);
+  formData.append("fileA", fileA);
+  formData.append("fileB", fileB);
 
   try {
-    const r = await apiClient.post('/compare', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    const r = await apiClient.post("/compare", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      maxBodyLength: 10 * 1024 * 1024,
     });
     return r.data as ComparisonReport;
   } catch (err: any) {
     const status = err?.response?.status;
-    const msg = status === 404
-      ? "Compare endpoint is not available on the backend."
-      : (err?.response?.data?.detail || "The comparison service failed.");
-    throw { response: { data: { message: msg } } };
+    const msg =
+      status === 404
+        ? "Compare endpoint is not available on the backend."
+        : err?.response?.data?.detail ||
+          err?.response?.data?.message ||
+          "The comparison service failed.";
+    throw normalizeError({ response: { status, data: { detail: msg } } }, msg);
   }
 };
