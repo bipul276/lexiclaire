@@ -1,0 +1,12 @@
+# ai-service/requirements.txt
+fastapi
+uvicorn[standard]
+python-dotenv
+langchain
+langchain-openai
+pydantic
+PyMuPDF
+python-docx
+tiktoken
+langchain-google-genai
+PyPDF2

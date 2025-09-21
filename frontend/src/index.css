@@ -1,0 +1,239 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Sans+Pro:wght@400;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@custom-variant dark (&:is(.dark *));
+
+/* High-contrast mode toggled by html.hc; multiplier provided by --hc-multiplier */
+html.hc {
+  filter: contrast(var(--hc-multiplier, 1.2)) saturate(1.05);
+}
+
+/* ---- Theme tokens ---- */
+:root {
+  --font-size: 16px;
+  --background: #F7F8FA;
+  --foreground: #2C3E50;
+  --card: #FFFFFF;
+  --card-foreground: #2C3E50;
+  --popover: #FFFFFF;
+  --popover-foreground: #2C3E50;
+  --primary: #4A90E2;
+  --primary-foreground: #FFFFFF;
+  --secondary: #50E3C2;
+  --secondary-foreground: #2C3E50;
+  --muted: #F1F3F6;
+  --muted-foreground: #6B7280;
+  --accent: #50E3C2;
+  --accent-foreground: #2C3E50;
+  --destructive: #E74C3C;
+  --destructive-foreground: #FFFFFF;
+  --border: #DDE2E8;
+  --input: #FFFFFF;
+  --input-background: #FFFFFF;
+  --switch-background: #DDE2E8;
+  --ring: #4A90E2;
+  --success: #10B981;
+  --success-foreground: #FFFFFF;
+  --radius: 10px;
+
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #2C3E50;
+  --sidebar-primary: #4A90E2;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #F7F8FA;
+  --sidebar-accent-foreground: #2C3E50;
+  --sidebar-border: #DDE2E8;
+  --sidebar-ring: #4A90E2;
+}
+
+.dark {
+  --background: oklch(0.16 0 0);
+  --foreground: oklch(0.98 0 0);
+  --card: oklch(0.18 0 0);
+  --card-foreground: oklch(0.98 0 0);
+  --popover: oklch(0.17 0 0);
+  --popover-foreground: oklch(0.98 0 0);
+  --primary: oklch(0.85 0.08 250);
+  --primary-foreground: oklch(0.16 0 0);
+  --secondary: oklch(0.72 0.12 160);
+  --secondary-foreground: oklch(0.16 0 0);
+  --muted: oklch(0.22 0 0);
+  --muted-foreground: oklch(0.78 0 0);
+  --accent: oklch(0.22 0 0);
+  --accent-foreground: oklch(0.98 0 0);
+  --destructive: oklch(0.60 0.19 25);
+  --destructive-foreground: oklch(0.16 0 0);
+  --border: oklch(0.28 0 0);
+  --input: oklch(0.22 0 0);
+  --ring: oklch(0.70 0.08 250);
+
+  --sidebar: oklch(0.20 0 0);
+  --sidebar-foreground: oklch(0.98 0 0);
+  --sidebar-primary: oklch(0.85 0.08 250);
+  --sidebar-primary-foreground: oklch(0.16 0 0);
+  --sidebar-accent: oklch(0.24 0 0);
+  --sidebar-accent-foreground: oklch(0.98 0 0);
+  --sidebar-border: oklch(0.28 0 0);
+  --sidebar-ring: oklch(0.70 0.08 250);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-input-background: var(--input-background);
+  --color-switch-background: var(--switch-background);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  html { font-size: var(--font-size); }
+  body { @apply bg-background text-foreground; font-family: 'Source Sans Pro', sans-serif; }
+}
+
+/* ---- Range slider used in Settings ---- */
+.lexi-range {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 8px;
+  background: linear-gradient(to right, var(--color-primary), var(--color-primary)) left/0% 100% no-repeat, rgba(0,0,0,.08);
+  border-radius: 9999px;
+  outline: none;
+}
+.lexi-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: var(--color-primary);
+  border: 2px solid var(--color-card);
+  box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  cursor: pointer;
+}
+.lexi-range::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 9999px;
+  background: var(--color-primary);
+  border: 2px solid var(--color-card);
+  box-shadow: 0 1px 2px rgba(0,0,0,.2);
+  cursor: pointer;
+}
+/* fill track based on value (runs with little JS via inline oninput) */
+.lexi-range {
+  /* JS helper updates --range-fill in style attr when value changes (see dashboard) */
+  background-size: var(--range-fill, 0%) 100%, auto;
+}
+
+/* Nice shadow for brand */
+.lexiclaire-shadow { box-shadow: 0 8px 30px rgba(0,0,0,.08); }
+
+/* Patterns */
+.bg-grid-pattern {
+  background-image: radial-gradient(circle at 1px 1px, rgba(74, 144, 226, 0.15) 1px, transparent 0);
+  background-size: 20px 20px;
+}
+.bg-dots-pattern {
+  background-image: radial-gradient(circle at 2px 2px, rgba(255, 255, 255, 0.3) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+/* Keep any Radix portal (Select, Popover, etc.) above Dialog overlays */
+[data-radix-portal] {
+  position: relative;
+  z-index: 10000;
+}
+/* pretty range control */
+.lexi-range {
+  --track: var(--border);
+  --fill: var(--primary);
+  appearance: none;
+  height: 6px;
+  border-radius: 9999px;
+  background: linear-gradient(to right, var(--fill) var(--range-fill, 0%), var(--track) var(--range-fill, 0%));
+  outline: none;
+}
+.lexi-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px; height: 18px; border-radius: 9999px; background: var(--card-foreground); border: 2px solid var(--primary);
+  cursor: pointer;
+}
+.lexi-range::-moz-range-thumb {
+  width: 18px; height: 18px; border-radius: 9999px; background: var(--card-foreground); border: 2px solid var(--primary);
+  cursor: pointer;
+}
+/* === Lexi range (accented slider with filled track) === */
+.lexi-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 9999px;
+  background:
+    linear-gradient(var(--ring, #4A90E2), var(--ring, #4A90E2)) 0/var(--range-fill, 0%) 100% no-repeat,
+    var(--switch-background, #DDE2E8);
+  outline: none;
+}
+
+/* WebKit thumb */
+.lexi-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: var(--primary, #4A90E2);
+  border: 2px solid white;
+  box-shadow: 0 0 0 2px var(--ring, #4A90E2);
+  cursor: pointer;
+}
+
+/* Firefox track & thumb */
+.lexi-range::-moz-range-track {
+  height: 6px;
+  border-radius: 9999px;
+  background:
+    linear-gradient(var(--ring, #4A90E2), var(--ring, #4A90E2)) 0/var(--range-fill, 0%) 100% no-repeat,
+    var(--switch-background, #DDE2E8);
+}
+.lexi-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: var(--primary, #4A90E2);
+  border: 2px solid white;
+  box-shadow: 0 0 0 2px var(--ring, #4A90E2);
+  cursor: pointer;
+}

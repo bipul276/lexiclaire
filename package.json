@@ -1,0 +1,19 @@
+{
+  "name": "graphene-mvp",
+  "version": "1.0.0",
+  "description": "A single command to run the Graphene/Lexiclaire MVP.",
+  "main": "index.js",
+  "scripts": {
+    "start": "concurrently \"npm:start-backend\" \"npm:start-frontend\" \"npm:start-ai\"",
+    "start-backend": "cd backend && npm run dev",
+    "start-frontend": "cd frontend && npm start",
+    "start-ai": "cd ai-service && .\\venv\\Scripts\\activate && uvicorn main:app --reload --port 8001"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "concurrently": "^9.2.1",
+    "pdfjs-dist": "^5.4.149"
+  }
+}
