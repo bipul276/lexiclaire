@@ -57,9 +57,13 @@ const translations = {
     clickToSelect: "Click to select a file.",
     chooseFile: "Choose File",
     analyzing: "Analyzing...",
+    warmingUp: "The AI service is waking up… this can take a little longer on free tier.",
     mayTakeMoment: "This may take a moment.",
+    stillWorking: "Still working… large PDFs or first run can take a minute.",
     analysisFailed: "Analysis Failed",
     tryAnotherFile: "Try Another File",
+    tryAgain: "Try Again",
+    cancel: "Cancel",
     documentPreview: "Document Preview",
     summary: "Summary",
     chat: "AI Chat",
@@ -86,9 +90,13 @@ const translations = {
     clickToSelect: "फ़ाइल चुनने के लिए क्लिक करें।",
     chooseFile: "फ़ाइल चुनें",
     analyzing: "विश्लेषण हो रहा है...",
+    warmingUp: "एआई सेवा जाग रही है… फ्री टियर पर इसमें थोड़ा समय लग सकता है।",
     mayTakeMoment: "इसमें थोड़ा समय लग सकता है।",
+    stillWorking: "अब भी काम चल रहा है… बड़े PDF या पहली बार में एक मिनट लग सकता है।",
     analysisFailed: "विश्लेषण असफल",
     tryAnotherFile: "दूसरी फ़ाइल आज़माएँ",
+    tryAgain: "फिर से कोशिश करें",
+    cancel: "रद्द करें",
     documentPreview: "दस्तावेज़ पूर्वावलोकन",
     summary: "सारांश",
     chat: "एआई चैट",
@@ -115,9 +123,13 @@ const translations = {
     clickToSelect: "ਫ਼ਾਇਲ ਚੁਣਨ ਲਈ ਕਲਿੱਕ ਕਰੋ।",
     chooseFile: "ਫ਼ਾਇਲ ਚੁਣੋ",
     analyzing: "ਵਿਸ਼ਲੇਸ਼ਣ ਚੱਲ ਰਿਹਾ ਹੈ...",
+    warmingUp: "AI ਸਰਵਿਸ ਜਾਗ ਰਹੀ ਹੈ… ਫਰੀ ਟੀਅਰ ਤੇ ਥੋੜ੍ਹਾ ਸਮਾਂ ਲੱਗ ਸਕਦਾ ਹੈ।",
     mayTakeMoment: "ਇਸ ਵਿੱਚ ਥੋੜ੍ਹਾ ਸਮਾਂ ਲੱਗ ਸਕਦਾ ਹੈ।",
+    stillWorking: "ਹਾਲੇ ਵੀ ਕੰਮ ਚੱਲ ਰਿਹਾ… ਵੱਡੇ PDF ਜਾਂ ਪਹਿਲੀ ਵਾਰ ਇੱਕ ਮਿੰਟ ਲੱਗ ਸਕਦਾ ਹੈ।",
     analysisFailed: "ਵਿਸ਼ਲੇਸ਼ਣ ਫੇਲ੍ਹ",
     tryAnotherFile: "ਹੋਰ ਫ਼ਾਇਲ ਅਜ਼ਮਾਓ",
+    tryAgain: "ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ",
+    cancel: "ਰੱਦ ਕਰੋ",
     documentPreview: "ਦਸਤਾਵੇਜ਼ ਝਲਕ",
     summary: "ਸੰਖੇਪ",
     chat: "ਏਆਈ ਚੈਟ",
@@ -170,6 +182,7 @@ export function Dashboard({
   const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(null);
   const [documentText, setDocumentText] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingTip, setLoadingTip] = useState<string>(t.mayTakeMoment);
   const [error, setError] = useState<string | null>(null);
 
   // ui
@@ -181,9 +194,14 @@ export function Dashboard({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // cancellation / timers
+  const cancelRef = useRef<{ cancelled: boolean }>({ cancelled: false });
+  const tipTimerRef = useRef<number | null>(null);
+  const warmTimerRef = useRef<number | null>(null);
+
   // pdf container
   const pdfContainerRef = useRef<HTMLDivElement>(null);
-  const lastRenderKeyRef = useRef<string>(""); // <-- added
+  const lastRenderKeyRef = useRef<string>("");
 
   const userName = user ? `${user.firstName} ${user.lastName}` : "Guest User";
   const isDocumentLoaded = !!analysisReport;
@@ -211,26 +229,102 @@ export function Dashboard({
     handleAnalysis(f);
   };
 
+  /** utility: transient / infra errors worth one retry */
+  const isTransient = (err: any) => {
+    const s = err?.response?.status;
+    const code = (err?.code || "").toUpperCase();
+    return [502, 503, 504, 522, 524, 408].includes(s) ||
+           ["ECONNABORTED", "ECONNRESET", "ETIMEDOUT"].includes(code);
+  };
+
+  /** utility: set progressive helper text during long waits */
+  const startProgressiveTips = () => {
+    // initial hint
+    setLoadingTip(t.mayTakeMoment);
+
+    // after 12s → warming up
+    warmTimerRef.current = window.setTimeout(() => {
+      setLoadingTip(t.warmingUp);
+    }, 12_000) as any;
+
+    // after 25s → still working
+    tipTimerRef.current = window.setTimeout(() => {
+      setLoadingTip(t.stillWorking);
+    }, 25_000) as any;
+  };
+
+  const clearProgressiveTips = () => {
+    if (tipTimerRef.current) window.clearTimeout(tipTimerRef.current);
+    if (warmTimerRef.current) window.clearTimeout(warmTimerRef.current);
+    tipTimerRef.current = null;
+    warmTimerRef.current = null;
+  };
+
+  const handleCancel = () => {
+    cancelRef.current.cancelled = true;
+    setIsLoading(false);
+    setLoadingTip(t.mayTakeMoment);
+  };
+
+  const handleRetry = async () => {
+    if (!documentFile) return;
+    await handleAnalysis(documentFile);
+  };
+
   const handleAnalysis = async (file: File) => {
+    cancelRef.current.cancelled = false;
     setIsLoading(true);
     setError(null);
-    try {
+    startProgressiveTips();
+
+    // one retry if infra hiccup
+    const doOnce = async () => {
       const report = await analyzeDocument(file);
-      setAnalysisReport(report);
-      if (report.type === "pdf") {
-        await renderPdfWithHighlights(file, report);
-        // track last render key (optional, for future cache logic)
-        lastRenderKeyRef.current = `${file.name}:${file.size}:${report.pages}`;
+      if (cancelRef.current.cancelled) throw new Error("cancelled");
+      return report;
+    };
+
+    try {
+      let report: AnalysisReport | null = null;
+
+      try {
+        report = await doOnce();
+      } catch (err: any) {
+        if (!isTransient(err)) throw err;
+        // transient → short backoff and retry once
+        await new Promise((r) => setTimeout(r, 2500));
+        report = await doOnce();
+      }
+
+      setAnalysisReport(report!);
+
+      if (report!.type === "pdf") {
+        await renderPdfWithHighlights(file, report!);
+        lastRenderKeyRef.current = `${file.name}:${file.size}:${report!.pages}`;
       }
     } catch (err: any) {
+      if (err?.message === "cancelled") {
+        // user cancelled: just return quietly
+        return;
+      }
       const status = err?.response?.status;
-      const msg =
-        status === 429
-          ? "Quota exceeded on the AI provider. Please check billing/quota or switch model."
-          : err?.response?.data?.detail || "The AI model failed to process the document.";
+      let msg: string;
+
+      if ([502, 503, 504, 522, 524, 408].includes(status)) {
+        msg = t.warmingUp; // friendly message
+      } else if (status === 429) {
+        msg = "Quota exceeded on the AI provider. Please check billing/quota or switch model.";
+      } else {
+        msg = err?.response?.data?.detail ||
+              err?.response?.data?.message ||
+              "The AI model failed to process the document.";
+      }
+
       setError(msg);
-      setDocumentFile(null);
+      // keep the selected file so user can "Try Again" without re-picking
+      // setDocumentFile(null); // ← intentionally NOT clearing
     } finally {
+      clearProgressiveTips();
       setIsLoading(false);
     }
   };
@@ -263,7 +357,7 @@ export function Dashboard({
 
   const triggerFileSelect = () => fileInputRef.current?.click();
 
-  // --- render pdf + highlights (responsive & rerender on resize) ---
+  // --- render pdf + highlights ---
   const renderPdfWithHighlights = async (file: File, report: AnalysisReport) => {
     if (!pdfContainerRef.current) return;
     pdfContainerRef.current.innerHTML = "";
@@ -272,11 +366,10 @@ export function Dashboard({
       const buf = await file.arrayBuffer();
       const pdf = await getDocument({ data: buf }).promise;
 
-      // Use container width when available; fall back to 640 — cap at 1200px
       const container = pdfContainerRef.current!;
       const baseWidthRaw =
         container.clientWidth && container.clientWidth > 0 ? container.clientWidth : 640;
-      const baseWidth = Math.min(baseWidthRaw, 1200); // <-- cap at 1200px
+      const baseWidth = Math.min(baseWidthRaw, 1200);
 
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
@@ -359,14 +452,11 @@ export function Dashboard({
       renderPdfWithHighlights(documentFile, analysisReport);
     }, 200);
 
-    // initial render after layout settles
     const raf = requestAnimationFrame(() =>
       renderPdfWithHighlights(documentFile, analysisReport)
     );
 
     window.addEventListener("resize", doRender);
-
-    // re-render when sidebar open/close or tab switch affects width
     doRender();
 
     return () => {
@@ -467,16 +557,26 @@ export function Dashboard({
                     <>
                       <Loader2 className="h-12 w-12 text-primary animate-spin mx-auto mb-6" />
                       <h2 className="text-foreground">{t.analyzing}</h2>
-                      <p className="text-muted-foreground mt-4">{t.mayTakeMoment}</p>
+                      <p className="text-muted-foreground mt-4">{loadingTip}</p>
+                      <div className="mt-6 flex items-center justify-center gap-3">
+                        <Button variant="outline" onClick={handleCancel}>
+                          {t.cancel}
+                        </Button>
+                      </div>
                     </>
                   ) : error ? (
                     <>
                       <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-6" />
                       <h2 className="text-destructive">{t.analysisFailed}</h2>
                       <p className="text-muted-foreground mt-4">{error}</p>
-                      <Button size="lg" onClick={triggerFileSelect} className="mt-8 px-8">
-                        {t.tryAnotherFile}
-                      </Button>
+                      <div className="mt-8 flex items-center justify-center gap-3">
+                        <Button size="lg" onClick={handleRetry} className="px-6">
+                          {t.tryAgain}
+                        </Button>
+                        <Button size="lg" variant="outline" onClick={triggerFileSelect} className="px-6">
+                          {t.tryAnotherFile}
+                        </Button>
+                      </div>
                     </>
                   ) : (
                     <>
