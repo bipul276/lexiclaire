@@ -1,5 +1,5 @@
 // frontend/src/services/api.ts
-import axios, { AxiosRequestConfig } from "axios";
+import axios, { type AxiosRequestConfig } from "axios";
 
 /* =========================
  *        Interfaces
