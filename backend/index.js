@@ -172,61 +172,88 @@ app.get('/api/documents', async (_req, res) => {
 });
 
 /* =========================
-   Analyze (proxy to AI)
+   Analyze (proxy to FastAPI) — buffer + content-length
    ========================= */
-app.post('/api/analyze', (req, res) => {
+app.post("/api/analyze", (req, res) => {
   const form = new formidable.IncomingForm({
     multiples: false,
     keepExtensions: true,
-    maxFileSize: 25 * 1024 * 1024,
+    maxFileSize: 25 * 1024 * 1024, // 25 MB
     allowEmptyFiles: false,
   });
 
   form.parse(req, async (err, _fields, files) => {
     if (err) {
-      console.error('[Analyze] form error:', err);
-      return res.status(400).json({ message: 'Invalid upload.' });
+      console.error("[Analyze] Form parse error:", err);
+      return res.status(400).json({ message: "Invalid upload." });
     }
 
     const f = Array.isArray(files.document) ? files.document[0] : files.document;
-    if (!f) return res.status(400).json({ message: 'No document file was uploaded.' });
+    if (!f) return res.status(400).json({ message: "No document file was uploaded." });
 
+    // 1) Read the temp file fully into memory (avoids read stream aborts)
+    let buffer;
+    try {
+      buffer = fs.readFileSync(f.filepath);
+    } catch (readErr) {
+      console.error("[Analyze] Failed to read temp file:", readErr);
+      return res.status(400).json({ message: "Could not read uploaded file." });
+    }
+
+    // 2) Build multipart with a Buffer and compute Content-Length
     const fd = new FormData();
-    fd.append('document', fs.createReadStream(f.filepath), {
-      filename: f.originalFilename || 'document',
-      contentType: f.mimetype || 'application/octet-stream',
-    });
+    const filename = f.originalFilename || "document";
+    const contentType = f.mimetype || "application/octet-stream";
+    fd.append("document", buffer, { filename, contentType });
+
+    let headers = fd.getHeaders();
+    try {
+      const length = await new Promise((resolve, reject) =>
+        fd.getLength((leErr, len) => (leErr ? reject(leErr) : resolve(len)))
+      );
+      headers = { ...headers, "Content-Length": length };
+    } catch (lenErr) {
+      // Not fatal, but log it. Axios will fallback to chunked.
+      console.warn("[Analyze] Could not compute multipart length:", lenErr?.message || lenErr);
+    }
 
     try {
-      // Warm the AI quickly (best effort; do not block if it fails)
-      aiHttp.get('/', { timeout: 5000 }).catch(() => {});
+      console.log(`[Analyze] -> ${AI_BASE}/analyze  (${filename})`);
+      const started = Date.now();
+      const resp = await aiPost("/analyze", fd, headers);
+      console.log(`[AI] /analyze OK in ${Date.now() - started}ms (status ${resp.status})`);
 
-      console.log(`[Analyze] -> ${AI_BASE}/analyze (${f.originalFilename || 'document'})`);
-      const resp = await aiPost('/analyze', fd, fd.getHeaders(), { timeoutMs: 360_000 });
-
-      // best-effort history
-      Document.create({
-        title: f.originalFilename || 'document',
-        status: 'analyzed',
-        riskLevel: resp.data?.riskLevel ?? null,
-        tags: Array.isArray(resp.data?.tags) ? resp.data.tags.slice(0, 10) : [],
-        size: resp.data?.size || `${Math.round((f.size || 0)/1024)} KB`,
-        type: resp.data?.type || 'txt',
-      }).catch((e) => console.warn('[Analyze] history save warn:', e.message));
+      // Best-effort history save
+      try {
+        await Document.create({
+          title: filename,
+          status: "analyzed",
+          riskLevel: resp.data?.riskLevel ?? null,
+          tags: Array.isArray(resp.data?.tags) ? resp.data.tags.slice(0, 10) : [],
+          size: resp.data?.size || `${Math.round((buffer.length || 0) / 1024)} KB`,
+          type: resp.data?.type || "txt",
+        });
+      } catch (dbErr) {
+        console.warn("[Analyze] History save warning:", dbErr?.message || dbErr);
+      }
 
       return res.status(200).json(resp.data);
     } catch (e) {
-      const status = e.response?.status;
-      const raw = e.response?.data || e.message || e.code;
-      console.error('[Analyze] AI call failed:', status, raw);
+      // Axios stream aborts/CF early closes typically show here
+      const status = e?.response?.status;
+      const code = e?.code;
+      const detail = e?.response?.data || e?.message || code || "unknown error";
+      console.error("[Analyze] AI call failed:", status, detail);
 
-      const friendly =
-        status && [502,503,504,522,524,408].includes(status)
-          ? 'Our AI service is waking up. Please try again in a few seconds.'
-          : 'AI service error. Please try again.';
-      return res.status(502).json({ message: friendly });
+      const msg = status
+        ? `AI service error (${status}). Please try again.`
+        : "AI service is waking up or temporarily unreachable. Please retry.";
+      return res.status(502).json({ message: msg });
     } finally {
+      // Clean up temp file
       try { fs.unlinkSync(f.filepath); } catch {}
+      // Drop the buffer reference
+      buffer = null;
     }
   });
 });
