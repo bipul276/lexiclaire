@@ -19,9 +19,11 @@ import {
   History,
   Menu,
   X,
+  RefreshCw,
+  Rocket,
 } from "lucide-react";
 import { LexiclaireLogo } from "./lexiclaire-logo";
-import { analyzeDocument, askChat } from "../services/api";
+import { analyzeDocument, askChat, wakeAI } from "../services/api";
 import type {
   AnalysisReport,
   ChatMessage,
@@ -57,13 +59,12 @@ const translations = {
     clickToSelect: "Click to select a file.",
     chooseFile: "Choose File",
     analyzing: "Analyzing...",
-    warmingUp: "The AI service is waking up… this can take a little longer on free tier.",
-    mayTakeMoment: "This may take a moment.",
-    stillWorking: "Still working… large PDFs or first run can take a minute.",
+    warmingUp: "Waking the AI service...",
+    mayTakeMoment: "This may take a moment, especially if the server was asleep.",
     analysisFailed: "Analysis Failed",
     tryAnotherFile: "Try Another File",
-    tryAgain: "Try Again",
-    cancel: "Cancel",
+    retry: "Retry",
+    wakeAndRetry: "Wake & Retry",
     documentPreview: "Document Preview",
     summary: "Summary",
     chat: "AI Chat",
@@ -83,6 +84,7 @@ const translations = {
     current: "Current",
     notPreviewable:
       "Preview not available for this file type. You can still view the analysis on the right.",
+    elapsed: "Elapsed",
   },
   hi: {
     documentAnalysis: "दस्तावेज़ विश्लेषण",
@@ -90,13 +92,12 @@ const translations = {
     clickToSelect: "फ़ाइल चुनने के लिए क्लिक करें।",
     chooseFile: "फ़ाइल चुनें",
     analyzing: "विश्लेषण हो रहा है...",
-    warmingUp: "एआई सेवा जाग रही है… फ्री टियर पर इसमें थोड़ा समय लग सकता है।",
-    mayTakeMoment: "इसमें थोड़ा समय लग सकता है।",
-    stillWorking: "अब भी काम चल रहा है… बड़े PDF या पहली बार में एक मिनट लग सकता है।",
+    warmingUp: "एआई सेवा को जगाया जा रहा है...",
+    mayTakeMoment: "यदि सर्वर स्लीप में था तो इसमें थोड़ा समय लग सकता है।",
     analysisFailed: "विश्लेषण असफल",
     tryAnotherFile: "दूसरी फ़ाइल आज़माएँ",
-    tryAgain: "फिर से कोशिश करें",
-    cancel: "रद्द करें",
+    retry: "पुनः प्रयास",
+    wakeAndRetry: "जगाएँ और पुनः प्रयास करें",
     documentPreview: "दस्तावेज़ पूर्वावलोकन",
     summary: "सारांश",
     chat: "एआई चैट",
@@ -116,6 +117,7 @@ const translations = {
     current: "वर्तमान",
     notPreviewable:
       "इस फ़ाइल के लिए पूर्वावलोकन उपलब्ध नहीं है। आप दाईं ओर विश्लेषण देख सकते हैं।",
+    elapsed: "बीता समय",
   },
   pa: {
     documentAnalysis: "ਦਸਤਾਵੇਜ਼ ਵਿਸ਼ਲੇਸ਼ਣ",
@@ -123,13 +125,12 @@ const translations = {
     clickToSelect: "ਫ਼ਾਇਲ ਚੁਣਨ ਲਈ ਕਲਿੱਕ ਕਰੋ।",
     chooseFile: "ਫ਼ਾਇਲ ਚੁਣੋ",
     analyzing: "ਵਿਸ਼ਲੇਸ਼ਣ ਚੱਲ ਰਿਹਾ ਹੈ...",
-    warmingUp: "AI ਸਰਵਿਸ ਜਾਗ ਰਹੀ ਹੈ… ਫਰੀ ਟੀਅਰ ਤੇ ਥੋੜ੍ਹਾ ਸਮਾਂ ਲੱਗ ਸਕਦਾ ਹੈ।",
-    mayTakeMoment: "ਇਸ ਵਿੱਚ ਥੋੜ੍ਹਾ ਸਮਾਂ ਲੱਗ ਸਕਦਾ ਹੈ।",
-    stillWorking: "ਹਾਲੇ ਵੀ ਕੰਮ ਚੱਲ ਰਿਹਾ… ਵੱਡੇ PDF ਜਾਂ ਪਹਿਲੀ ਵਾਰ ਇੱਕ ਮਿੰਟ ਲੱਗ ਸਕਦਾ ਹੈ।",
+    warmingUp: "ਏਆਈ ਸਰਵਿਸ ਨੂੰ ਜਗਾਇਆ ਜਾ ਰਿਹਾ ਹੈ...",
+    mayTakeMoment: "ਜੇ ਸਰਵਰ ਸੌਂ ਰਿਹਾ ਸੀ ਤਾਂ ਸਮਾਂ ਲੱਗ ਸਕਦਾ ਹੈ।",
     analysisFailed: "ਵਿਸ਼ਲੇਸ਼ਣ ਫੇਲ੍ਹ",
     tryAnotherFile: "ਹੋਰ ਫ਼ਾਇਲ ਅਜ਼ਮਾਓ",
-    tryAgain: "ਮੁੜ ਕੋਸ਼ਿਸ਼ ਕਰੋ",
-    cancel: "ਰੱਦ ਕਰੋ",
+    retry: "ਫਿਰ ਕੋਸ਼ਿਸ਼ ਕਰੋ",
+    wakeAndRetry: "ਜਗਾਓ ਅਤੇ ਫਿਰ ਕੋਸ਼ਿਸ਼ ਕਰੋ",
     documentPreview: "ਦਸਤਾਵੇਜ਼ ਝਲਕ",
     summary: "ਸੰਖੇਪ",
     chat: "ਏਆਈ ਚੈਟ",
@@ -149,6 +150,7 @@ const translations = {
     current: "ਮੌਜੂਦਾ",
     notPreviewable:
       "ਇਸ ਫਾਇਲ ਕਿਸਮ ਲਈ ਝਲਕ ਉਪਲਬਧ ਨਹੀਂ ਹੈ। ਤੁਸੀਂ ਸੱਜੇ ਪਾਸੇ ਵਿਸ਼ਲੇਸ਼ਣ ਦੇਖ ਸਕਦੇ ਹੋ।",
+    elapsed: "ਬੀਤਿਆ ਸਮਾਂ",
   },
 };
 
@@ -181,23 +183,21 @@ export function Dashboard({
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [analysisReport, setAnalysisReport] = useState<AnalysisReport | null>(null);
   const [documentText, setDocumentText] = useState<string>("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingTip, setLoadingTip] = useState<string>(t.mayTakeMoment);
+
+  // slow-backend friendly state
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isWarming, setIsWarming] = useState<boolean>(false);
+  const [elapsedSec, setElapsedSec] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
 
   // ui
-  const [activeTab, setActiveTab] = useState("summary");
+  const [activeTab, setActiveTab] = useState<string>("summary");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [chatInput, setChatInput] = useState("");
-  const [isChatLoading, setIsChatLoading] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [chatInput, setChatInput] = useState<string>("");
+  const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+  const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // cancellation / timers
-  const cancelRef = useRef<{ cancelled: boolean }>({ cancelled: false });
-  const tipTimerRef = useRef<number | null>(null);
-  const warmTimerRef = useRef<number | null>(null);
 
   // pdf container
   const pdfContainerRef = useRef<HTMLDivElement>(null);
@@ -208,124 +208,103 @@ export function Dashboard({
   const documentTitle = documentFile?.name || t.documentAnalysis;
   const pdfSupported = useMemo(() => analysisReport?.type === "pdf", [analysisReport]);
 
+  // elapsed timer
+  useEffect(() => {
+    if (!isLoading && !isWarming) {
+      setElapsedSec(0);
+      return;
+    }
+    const id = window.setInterval(() => setElapsedSec((s) => s + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [isLoading, isWarming]);
+
+  const triggerFileSelect = () => fileInputRef.current?.click();
+
   // upload handler
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
+    const f: File | undefined = e.target.files?.[0] ?? undefined;
     if (!f) return;
     setDocumentFile(f);
     setAnalysisReport(null);
     setChatMessages([]);
     setError(null);
+    setActiveTab("summary");
 
     if (f.name.toLowerCase().endsWith(".txt")) {
-      const r = new FileReader();
-      r.onload = (ev) => setDocumentText((ev.target?.result as string) || "");
-      r.readAsText(f);
+      const reader = new FileReader();
+      reader.onload = (ev: ProgressEvent<FileReader>) =>
+        setDocumentText((ev.target?.result as string) || "");
+      reader.readAsText(f);
     } else if (f.name.toLowerCase().endsWith(".docx")) {
       setDocumentText("(DOCX preview not available; use right panel for analysis.)");
     } else {
       setDocumentText("");
     }
-    handleAnalysis(f);
+    void handleAnalysis(f);
   };
 
-  /** utility: transient / infra errors worth one retry */
-  const isTransient = (err: any) => {
-    const s = err?.response?.status;
-    const code = (err?.code || "").toUpperCase();
-    return [502, 503, 504, 522, 524, 408].includes(s) ||
-           ["ECONNABORTED", "ECONNRESET", "ETIMEDOUT"].includes(code);
-  };
+  // core analyze with nice UX for sleepy backend
+  const handleAnalysis = async (file: File) => {
+    setIsLoading(true);
+    setIsWarming(false);
+    setError(null);
 
-  /** utility: set progressive helper text during long waits */
-  const startProgressiveTips = () => {
-    // initial hint
-    setLoadingTip(t.mayTakeMoment);
+    try {
+      const report = await analyzeDocument(file);
+      setAnalysisReport(report);
+      if (report.type === "pdf") {
+        await renderPdfWithHighlights(file, report);
+        lastRenderKeyRef.current = `${file.name}:${file.size}:${report.pages}`;
+      }
+    } catch (err: unknown) {
+      // If it smells like cold start, offer Wake & Retry, else show a normal retry.
+      const status: number = (err as any)?.response?.status ?? 0;
+      const detail: string =
+        (err as any)?.response?.data?.detail ||
+        (err as any)?.response?.data?.message ||
+        "The AI model failed to process the document.";
+      setError(detail);
 
-    // after 12s → warming up
-    warmTimerRef.current = window.setTimeout(() => {
-      setLoadingTip(t.warmingUp);
-    }, 12_000) as any;
-
-    // after 25s → still working
-    tipTimerRef.current = window.setTimeout(() => {
-      setLoadingTip(t.stillWorking);
-    }, 25_000) as any;
-  };
-
-  const clearProgressiveTips = () => {
-    if (tipTimerRef.current) window.clearTimeout(tipTimerRef.current);
-    if (warmTimerRef.current) window.clearTimeout(warmTimerRef.current);
-    tipTimerRef.current = null;
-    warmTimerRef.current = null;
-  };
-
-  const handleCancel = () => {
-    cancelRef.current.cancelled = true;
-    setIsLoading(false);
-    setLoadingTip(t.mayTakeMoment);
+      // If gateway/cold-start-ish, toggle “warming” hint
+      if ([0, 502, 503, 504, 522, 524, 408].includes(status)) {
+        setIsWarming(true);
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleRetry = async () => {
     if (!documentFile) return;
-    await handleAnalysis(documentFile);
+    setError(null);
+    setIsLoading(true);
+    setIsWarming(false);
+    try {
+      const report = await analyzeDocument(documentFile);
+      setAnalysisReport(report);
+      if (report.type === "pdf") {
+        await renderPdfWithHighlights(documentFile, report);
+      }
+    } catch (err: unknown) {
+      const detail: string =
+        (err as any)?.response?.data?.detail ||
+        (err as any)?.response?.data?.message ||
+        "Retry failed.";
+      setError(detail);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleAnalysis = async (file: File) => {
-    cancelRef.current.cancelled = false;
-    setIsLoading(true);
+  const handleWakeAndRetry = async () => {
+    if (!documentFile) return;
+    setIsWarming(true);
     setError(null);
-    startProgressiveTips();
-
-    // one retry if infra hiccup
-    const doOnce = async () => {
-      const report = await analyzeDocument(file);
-      if (cancelRef.current.cancelled) throw new Error("cancelled");
-      return report;
-    };
-
     try {
-      let report: AnalysisReport | null = null;
-
-      try {
-        report = await doOnce();
-      } catch (err: any) {
-        if (!isTransient(err)) throw err;
-        // transient → short backoff and retry once
-        await new Promise((r) => setTimeout(r, 2500));
-        report = await doOnce();
-      }
-
-      setAnalysisReport(report!);
-
-      if (report!.type === "pdf") {
-        await renderPdfWithHighlights(file, report!);
-        lastRenderKeyRef.current = `${file.name}:${file.size}:${report!.pages}`;
-      }
-    } catch (err: any) {
-      if (err?.message === "cancelled") {
-        // user cancelled: just return quietly
-        return;
-      }
-      const status = err?.response?.status;
-      let msg: string;
-
-      if ([502, 503, 504, 522, 524, 408].includes(status)) {
-        msg = t.warmingUp; // friendly message
-      } else if (status === 429) {
-        msg = "Quota exceeded on the AI provider. Please check billing/quota or switch model.";
-      } else {
-        msg = err?.response?.data?.detail ||
-              err?.response?.data?.message ||
-              "The AI model failed to process the document.";
-      }
-
-      setError(msg);
-      // keep the selected file so user can "Try Again" without re-picking
-      // setDocumentFile(null); // ← intentionally NOT clearing
+      await wakeAI(); // best-effort ping
+      await handleRetry();
     } finally {
-      clearProgressiveTips();
-      setIsLoading(false);
+      setIsWarming(false);
     }
   };
 
@@ -333,7 +312,7 @@ export function Dashboard({
   const handleSendMessage = async () => {
     if (!chatInput.trim() || isChatLoading || !analysisReport) return;
     const userMessage: ChatMessage = { type: "user", content: chatInput };
-    setChatMessages((p) => [...p, userMessage]);
+    setChatMessages((prev: ChatMessage[]) => [...prev, userMessage]);
     setChatInput("");
     setIsChatLoading(true);
     try {
@@ -344,10 +323,10 @@ export function Dashboard({
         documentId,
         analysisReport.analyzedText
       );
-      setChatMessages((p) => [...p, aiResponse]);
-    } catch {
-      setChatMessages((p) => [
-        ...p,
+      setChatMessages((prev: ChatMessage[]) => [...prev, aiResponse]);
+    } catch (_err: unknown) {
+      setChatMessages((prev: ChatMessage[]) => [
+        ...prev,
         { type: "ai", content: "Sorry, I couldn't get a response. Please try again." },
       ]);
     } finally {
@@ -355,9 +334,7 @@ export function Dashboard({
     }
   };
 
-  const triggerFileSelect = () => fileInputRef.current?.click();
-
-  // --- render pdf + highlights ---
+  // --- render pdf + highlights (responsive & rerender on resize) ---
   const renderPdfWithHighlights = async (file: File, report: AnalysisReport) => {
     if (!pdfContainerRef.current) return;
     pdfContainerRef.current.innerHTML = "";
@@ -367,13 +344,12 @@ export function Dashboard({
       const pdf = await getDocument({ data: buf }).promise;
 
       const container = pdfContainerRef.current!;
-      const baseWidthRaw =
+      const baseWidthRaw: number =
         container.clientWidth && container.clientWidth > 0 ? container.clientWidth : 640;
       const baseWidth = Math.min(baseWidthRaw, 1200);
 
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
-
         const unscaled = page.getViewport({ scale: 1 });
         const scale = baseWidth / unscaled.width;
         const viewport = page.getViewport({ scale });
@@ -427,6 +403,7 @@ export function Dashboard({
           });
       }
     } catch (e) {
+      // Typed message for TS satisfaction (no implicit any param named msg anywhere)
       console.error("PDF render failed:", e);
       const msg = document.createElement("p");
       msg.className = "text-sm";
@@ -448,14 +425,11 @@ export function Dashboard({
       };
     };
 
-    const doRender = debounce(() => {
-      renderPdfWithHighlights(documentFile, analysisReport);
+    const doRender: () => void = debounce(() => {
+      void renderPdfWithHighlights(documentFile, analysisReport);
     }, 200);
 
-    const raf = requestAnimationFrame(() =>
-      renderPdfWithHighlights(documentFile, analysisReport)
-    );
-
+    const raf = requestAnimationFrame(() => void renderPdfWithHighlights(documentFile, analysisReport));
     window.addEventListener("resize", doRender);
     doRender();
 
@@ -494,9 +468,7 @@ export function Dashboard({
 
       {/* Sidebar */}
       <div
-        className={`${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        } lg:translate-x-0 transition-transform duration-300 fixed lg:static inset-y-0 left-0 z-50 w-64 bg-card border-r border-border`}
+        className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0 transition-transform duration-300 fixed lg:static inset-y-0 left-0 z-50 w-64 bg-card border-r border-border`}
       >
         <div className="flex items-center justify-between p-6 border-b border-border">
           <LexiclaireLogo size={32} textClassName="text-xl" />
@@ -553,27 +525,35 @@ export function Dashboard({
             <div className="h-full flex items-center justify-center p-8">
               <Card className="w-full max-w-2xl">
                 <CardContent className="p-12 text-center">
-                  {isLoading ? (
+                  {isLoading || isWarming ? (
                     <>
                       <Loader2 className="h-12 w-12 text-primary animate-spin mx-auto mb-6" />
-                      <h2 className="text-foreground">{t.analyzing}</h2>
-                      <p className="text-muted-foreground mt-4">{loadingTip}</p>
-                      <div className="mt-6 flex items-center justify-center gap-3">
-                        <Button variant="outline" onClick={handleCancel}>
-                          {t.cancel}
-                        </Button>
-                      </div>
+                      <h2 className="text-foreground">
+                        {isWarming ? t.warmingUp : t.analyzing}
+                      </h2>
+                      <p className="text-muted-foreground mt-2">
+                        {t.elapsed}: {elapsedSec}s
+                      </p>
+                      <p className="text-muted-foreground mt-4">{t.mayTakeMoment}</p>
+                      {error && (
+                        <p className="text-muted-foreground mt-4">{error}</p>
+                      )}
                     </>
                   ) : error ? (
                     <>
                       <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-6" />
                       <h2 className="text-destructive">{t.analysisFailed}</h2>
                       <p className="text-muted-foreground mt-4">{error}</p>
-                      <div className="mt-8 flex items-center justify-center gap-3">
+                      <div className="flex items-center justify-center gap-3 mt-8">
                         <Button size="lg" onClick={handleRetry} className="px-6">
-                          {t.tryAgain}
+                          <RefreshCw className="h-4 w-4 mr-2" />
+                          {t.retry}
                         </Button>
-                        <Button size="lg" variant="outline" onClick={triggerFileSelect} className="px-6">
+                        <Button size="lg" variant="secondary" onClick={handleWakeAndRetry} className="px-6">
+                          <Rocket className="h-4 w-4 mr-2" />
+                          {t.wakeAndRetry}
+                        </Button>
+                        <Button size="lg" onClick={triggerFileSelect} className="px-6">
                           {t.tryAnotherFile}
                         </Button>
                       </div>
@@ -728,9 +708,9 @@ export function Dashboard({
                               placeholder="Ask..."
                               value={chatInput}
                               onChange={(e) => setChatInput(e.target.value)}
-                              onKeyDown={(e) => e.key === "Enter" && handleSendMessage()}
+                              onKeyDown={(e) => e.key === "Enter" && void handleSendMessage()}
                             />
-                            <Button size="sm" onClick={handleSendMessage} disabled={isChatLoading}>
+                            <Button size="sm" onClick={() => void handleSendMessage()} disabled={isChatLoading}>
                               <Send className="h-4 w-4" />
                             </Button>
                           </div>
@@ -793,7 +773,7 @@ export function Dashboard({
                 max={140}
                 step={10}
                 value={contrast}
-                onChange={(e) => setContrast(parseInt(e.target.value))}
+                onChange={(e) => setContrast(parseInt(e.target.value, 10))}
                 className="lexi-range w-full"
                 style={{ ["--range-fill" as any]: `${((contrast - 100) / 40) * 100}%` }}
               />
@@ -812,7 +792,7 @@ export function Dashboard({
                 max={22}
                 step={1}
                 value={fontSize}
-                onChange={(e) => setFontSize(parseInt(e.target.value))}
+                onChange={(e) => setFontSize(parseInt(e.target.value, 10))}
                 className="lexi-range w-full"
                 style={{ ["--range-fill" as any]: `${((fontSize - 12) / 10) * 100}%` }}
               />

@@ -1,5 +1,5 @@
 // frontend/src/services/api.ts
-import axios, { type AxiosRequestConfig } from "axios";
+import axios, { AxiosError } from "axios";
 
 /* =========================
  *        Interfaces
@@ -92,32 +92,43 @@ export interface ComparisonReport {
 }
 
 /* =========================
+ *   Error helpers (typed)
+ * ========================= */
+export type NormalizedError = {
+  response: {
+    status: number;
+    data: { detail: string; message: string };
+  };
+};
+
+const buildError = (status: number, message: string): NormalizedError => ({
+  response: {
+    status,
+    data: { detail: message, message },
+  },
+});
+
+const normalizeError = (err: unknown, fallback = "Request failed."): NormalizedError => {
+  const ax = err as AxiosError<any>;
+  const status = ax?.response?.status ?? 0;
+  const detail =
+    (ax?.response?.data as any)?.detail ||
+    (ax?.response?.data as any)?.message ||
+    ax?.message ||
+    fallback;
+  return buildError(status, String(detail));
+};
+
+/* =========================
  *     Axios Client Setup
  * ========================= */
-function cleanBase(raw?: string): string | undefined {
-  if (!raw) return undefined;
-  let s = raw.trim();
-
-  // If someone pasted "VITE_API_BASE = https://host/api"
-  const urlMatch = s.match(/https?:\/\/[^\s"']+/i);
-  if (urlMatch) s = urlMatch[0];
-
-  // Remove trailing slash(es)
-  s = s.replace(/\/+$/, "");
-  return s;
-}
-
 const inferBase = () => {
-  const envRaw = import.meta.env?.VITE_API_BASE as string | undefined;
-  const env = cleanBase(envRaw);
-  if (env) return env; // respect provided base, already trimmed
-
-  // Dev fallback
+  // Priority: explicit env → dev default → reverse-proxy path
+  const env = import.meta.env?.VITE_API_BASE as string | undefined;
+  if (env && env.trim()) return env.replace(/\/+$/, ""); // remove trailing slash
   if (typeof window !== "undefined" && window.location.hostname === "localhost") {
     return "http://localhost:5001/api";
   }
-
-  // Reverse-proxy path (Vercel rewrite to /api/*)
   return "/api";
 };
 
@@ -125,7 +136,10 @@ const apiBase = inferBase();
 
 const apiClient = axios.create({
   baseURL: apiBase,
-  timeout: 30000, // default; endpoints override below
+  // generous timeout to tolerate cold starts on free tiers
+  timeout: 360_000, // 6 minutes
+  maxBodyLength: Infinity,
+  maxContentLength: Infinity,
 });
 
 // Restore token on load
@@ -148,42 +162,6 @@ export function logout() {
   setAuthToken(null);
 }
 
-// Normalize errors so UI can read .detail OR .message
-const normalizeError = (err: any, fallback = "Request failed.") => {
-  const status = err?.response?.status ?? 0;
-  const detail =
-    err?.response?.data?.detail ||
-    err?.response?.data?.message ||
-    err?.message ||
-    fallback;
-  return { response: { status, data: { detail, message: detail } } };
-};
-
-// Transient/infra failures worth a retry
-const isTransient = (err: any) => {
-  const status = err?.response?.status;
-  const code = (err?.code || "").toUpperCase();
-  return (
-    [502, 503, 504, 522, 524, 408].includes(status) ||
-    ["ECONNABORTED", "ECONNRESET", "ETIMEDOUT"].includes(code)
-  );
-};
-
-async function requestWithRetry<T>(
-  fn: () => Promise<T>,
-  { retries = 1, backoffMs = 2000 }: { retries?: number; backoffMs?: number } = {}
-): Promise<T> {
-  try {
-    return await fn();
-  } catch (e) {
-    if (retries > 0 && isTransient(e)) {
-      await new Promise((r) => setTimeout(r, backoffMs));
-      return requestWithRetry(fn, { retries: retries - 1, backoffMs });
-    }
-    throw e;
-  }
-}
-
 /* =========================
  *          Auth
  * ========================= */
@@ -191,24 +169,27 @@ export const loginUser = async (
   email: string,
   password: string
 ): Promise<AuthResponse> => {
-  try {
-    const r = await apiClient.post("/auth/login", { email, password }, { timeout: 30000 });
-    if (r.data?.token) setAuthToken(r.data.token);
-    return r.data;
-  } catch (err: any) {
-    throw normalizeError(err, "Login failed.");
-  }
+  const r = await apiClient.post("/auth/login", { email, password });
+  if (r.data?.token) setAuthToken(r.data.token);
+  return r.data;
 };
 
 export const registerUser = async (
   userData: RegistrationData
 ): Promise<AuthResponse> => {
+  const r = await apiClient.post("/auth/register", userData);
+  if (r.data?.token) setAuthToken(r.data.token);
+  return r.data;
+};
+
+/* =========================
+ *         Wake AI
+ * ========================= */
+export const wakeAI = async (): Promise<void> => {
   try {
-    const r = await apiClient.post("/auth/register", userData, { timeout: 30000 });
-    if (r.data?.token) setAuthToken(r.data.token);
-    return r.data;
-  } catch (err: any) {
-    throw normalizeError(err, "Registration failed.");
+    await apiClient.get("/_wake");
+  } catch {
+    // ignore — this is best-effort
   }
 };
 
@@ -220,21 +201,16 @@ export const analyzeDocument = async (file: File): Promise<AnalysisReport> => {
   // Backend accepts "document" (primary) and "file" (fallback in FastAPI)
   formData.append("document", file);
 
-  const config: AxiosRequestConfig = {
-    headers: { "Content-Type": "multipart/form-data" },
-    maxBodyLength: Infinity, // allow large PDFs
-    timeout: 120000, // allow cold starts / long parses
-  };
-
   try {
-    const r = await requestWithRetry(
-      () => apiClient.post("/analyze", formData, config),
-      { retries: 1, backoffMs: 2500 }
-    );
+    const r = await apiClient.post("/analyze", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
 
-    const report: AnalysisReport = (r as any).data;
+    const report: AnalysisReport = r.data;
 
-    // Persist a light entry for "My Documents" (local cache)
+    // Persist a light entry for "My Documents"
     const item: Document = {
       id: `${Date.now()}-${file.name}`,
       title: file.name,
@@ -247,18 +223,25 @@ export const analyzeDocument = async (file: File): Promise<AnalysisReport> => {
     };
     const raw = localStorage.getItem("lexi-history") || "[]";
     const arr: Document[] = JSON.parse(raw);
-    localStorage.setItem("lexi-history", JSON.stringify([item, ...arr].slice(0, 200)));
+    localStorage.setItem(
+      "lexi-history",
+      JSON.stringify([item, ...arr].slice(0, 200))
+    );
 
     return report;
-  } catch (err: any) {
-    const status = err?.response?.status;
-    const msg =
-      status && [502, 503, 504, 522, 524, 408].includes(status)
+  } catch (err: unknown) {
+    const ax = err as AxiosError<any>;
+    const status: number = ax?.response?.status ?? 0;
+
+    const message: string =
+      (status && [502, 503, 504, 522, 524, 408].includes(status))
         ? "Our AI service is waking up. Please try again in a few seconds."
-        : err?.response?.data?.detail ||
-          err?.response?.data?.message ||
+        : (ax?.response?.data?.detail as string) ||
+          (ax?.response?.data?.message as string) ||
+          ax?.message ||
           "The AI service failed to analyze the document. Please try again.";
-    throw normalizeError({ response: { status, data: { detail: msg } } }, msg);
+
+    throw buildError(status, message);
   }
 };
 
@@ -272,13 +255,14 @@ export const askChat = async (
   analyzedText: string
 ): Promise<ChatMessage> => {
   try {
-    const r = await apiClient.post(
-      "/chat",
-      { question, history, documentId, analyzedText },
-      { timeout: 60000 }
-    );
+    const r = await apiClient.post("/chat", {
+      question,
+      history,
+      documentId,
+      analyzedText,
+    });
     return r.data as ChatMessage;
-  } catch (err: any) {
+  } catch (err: unknown) {
     throw normalizeError(err, "Chat request failed.");
   }
 };
@@ -288,16 +272,10 @@ export const askChat = async (
  * ========================= */
 export const getDocuments = async (): Promise<Document[]> => {
   try {
-    const r = await apiClient.get("/documents", { timeout: 30000 });
+    const r = await apiClient.get("/documents");
     return r.data as Document[];
-  } catch (err: any) {
-    // Fallback to local cache so the page still works offline/when DB is slow
-    try {
-      const raw = localStorage.getItem("lexi-history") || "[]";
-      return JSON.parse(raw) as Document[];
-    } catch {
-      throw normalizeError(err, "Failed to fetch documents.");
-    }
+  } catch (err: unknown) {
+    throw normalizeError(err, "Failed to fetch documents.");
   }
 };
 
@@ -312,28 +290,23 @@ export const compareDocuments = async (
   formData.append("fileA", fileA);
   formData.append("fileB", fileB);
 
-  const config: AxiosRequestConfig = {
-    headers: { "Content-Type": "multipart/form-data" },
-    maxBodyLength: Infinity,
-    timeout: 120000,
-  };
-
   try {
-    const r = await requestWithRetry(
-      () => apiClient.post("/compare", formData, config),
-      { retries: 1, backoffMs: 2500 }
-    );
+    const r = await apiClient.post("/compare", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
     return r.data as ComparisonReport;
-  } catch (err: any) {
-    const status = err?.response?.status;
-    const msg =
+  } catch (err: unknown) {
+    const ax = err as AxiosError<any>;
+    const status: number = ax?.response?.status ?? 0;
+    const message: string =
       status === 404
         ? "Compare endpoint is not available on the backend."
-        : status && [502, 503, 504, 522, 524, 408].includes(status)
-        ? "Our compare service is warming up. Please try again shortly."
-        : err?.response?.data?.detail ||
-          err?.response?.data?.message ||
+        : (ax?.response?.data?.detail as string) ||
+          (ax?.response?.data?.message as string) ||
+          ax?.message ||
           "The comparison service failed.";
-    throw normalizeError({ response: { status, data: { detail: msg } } }, msg);
+    throw buildError(status, message);
   }
 };
